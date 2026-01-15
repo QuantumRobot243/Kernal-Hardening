@@ -1,5 +1,8 @@
 pub mod memory;
 pub mod dump;
 pub mod signals;
+pub mod anti_debug;
+
+
 
 

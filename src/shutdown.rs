@@ -1,16 +1,16 @@
 use crate::hardening::memory;
-use crate::secrets::secret::Secret;
-
+use crate::secrets::secret;
 use std::sync::Once;
-use zeroize::Zeroize;
+use std::process;
 
 static SHUTDOWN_ONCE: Once = Once::new();
 
 pub fn secure_shutdown() {
     SHUTDOWN_ONCE.call_once(|| {
-        let mut secret = Secret::new();
-        secret.as_mut().zeroize();
+        eprintln!("\n[!] Secure shutdown initiated. Wiping memory...");
+
+        secret::wipe_all_registered_secrets();
         memory::unlock_memory();
-        std::process::exit(0);
+        process::exit(0);
     });
 }

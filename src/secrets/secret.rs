@@ -1,4 +1,4 @@
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::Zeroize;
 use std::sync::Mutex;
 use lazy_static::lazy_static;
 
@@ -10,19 +10,34 @@ lazy_static! {
     static ref SECRET_REGISTRY: Mutex<Vec<SendPtr>> = Mutex::new(Vec::new());
 }
 
-#[derive(Zeroize, ZeroizeOnDrop)]
+#[derive(Zeroize)]
 pub struct Secret {
-    pub data: [u8; 32],
+    pub data: Box<[u8; 32]>,
 }
 
 impl Secret {
     pub fn new() -> Self {
-        let mut secret = Secret { data: [42u8; 32] };
+        let mut secret = Secret {
+            data: Box::new([42u8; 32])
+        };
+
         if let Ok(mut registry) = SECRET_REGISTRY.lock() {
             registry.push(SendPtr(secret.data.as_mut_ptr()));
         }
 
         secret
+    }
+}
+
+impl Drop for Secret {
+    fn drop(&mut self) {
+        let my_ptr = self.data.as_mut_ptr();
+
+        if let Ok(mut registry) = SECRET_REGISTRY.lock() {
+            registry.retain(|ptr_wrapper| ptr_wrapper.0 != my_ptr);
+        }
+
+        self.data.zeroize();
     }
 }
 

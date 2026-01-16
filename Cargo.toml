@@ -8,6 +8,8 @@ libc = "0.2"
 signal-hook = "0.3"
 zeroize = { version = "1.8", features = ["derive"] }
 lazy_static = "1.4"
+rpassword = "7.0"
+obfstr = "0.4"
 
 [profile.release]
 panic = "abort"    

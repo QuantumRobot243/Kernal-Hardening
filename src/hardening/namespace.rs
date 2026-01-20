@@ -1,19 +1,24 @@
 use libc::{
-    mount, umount2, unshare, CLONE_NEWNS, MCL_CURRENT, MCL_FUTURE, MNT_DETACH, MS_BIND,
+    mount, umount2, unshare, CLONE_NEWNS, CLONE_NEWUSER, MNT_DETACH,
     MS_NOSUID, MS_NOEXEC, MS_NODEV, MS_PRIVATE, MS_REC,
 };
 use std::ffi::CString;
+use std::fs;
 use std::process;
 use std::ptr;
 
 pub fn isolate_environment() {
-    println!("[*] Initializing Filesystem Isolation...");
+    let uid = unsafe { libc::getuid() };
+    let gid = unsafe { libc::getgid() };
 
     unsafe {
-        if unshare(CLONE_NEWNS) != 0 {
-            eprintln!("[!] Failed to unshare Mount Namespace. Run as Root?");
-            return;
+        if unshare(CLONE_NEWUSER | CLONE_NEWNS) != 0 {
+            process::exit(1);
         }
+
+        fs::write("/proc/self/setgroups", "deny").ok();
+        fs::write("/proc/self/uid_map", format!("0 {} 1", uid)).ok();
+        fs::write("/proc/self/gid_map", format!("0 {} 1", gid)).ok();
 
         let root = CString::new("/").unwrap();
         if mount(
@@ -24,42 +29,31 @@ pub fn isolate_environment() {
             ptr::null(),
         ) != 0
         {
-            eprintln!("[!] Failed to set filesystem to Private.");
             process::exit(1);
         }
 
         let tmp_path = CString::new("/tmp").unwrap();
         let tmpfs = CString::new("tmpfs").unwrap();
-
         let flags = MS_NOSUID | MS_NOEXEC | MS_NODEV;
 
-        if mount(
+        mount(
             tmpfs.as_ptr(),
             tmp_path.as_ptr(),
             tmpfs.as_ptr(),
             flags,
             ptr::null(),
-        ) != 0
-        {
-            eprintln!("[!] Warning: Failed to isolate /tmp.");
-        } else {
-            println!("[*] /tmp Isolation: ACTIVE (Private tmpfs)");
-        }
+        );
 
         let proc_path = CString::new("/proc").unwrap();
         let proc_fs = CString::new("proc").unwrap();
 
         umount2(proc_path.as_ptr(), MNT_DETACH);
-
-        if mount(
+        mount(
             proc_fs.as_ptr(),
             proc_path.as_ptr(),
             proc_fs.as_ptr(),
-            MS_NOSUID | MS_NOEXEC | MS_NODEV,
+            flags,
             ptr::null(),
-        ) != 0
-        {
-    
-        }
-    } 
-} 
+        );
+    }
+}

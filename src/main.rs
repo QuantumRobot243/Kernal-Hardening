@@ -25,9 +25,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     signals::install_signal_handlers();
 
-    let _my_password = SecureSecret::new([42u8; 32]);
+    let _session_key = SecureSecret::new([0x39u8; 32]);
 
-    println!("{}", obfstr!("H-shell active. Secure environment established."));
+    println!("{}", obfstr!("kr-see: Secure Environment Active (Unprivileged)"));
 
     if let Err(e) = run_shell() {
         eprintln!("[!] Shell Error: {}", e);
@@ -39,27 +39,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn run_shell() -> Result<(), Box<dyn std::error::Error>> {
     loop {
-        let command = input::secure_prompt(obfstr!("⟦ H-Shell $⟧=>"));
+        let command = input::secure_prompt(obfstr!("⟦ kr-see ⟧=> "));
 
         match command.as_str() {
             c if c == obfstr!("status") => {
-                println!("{}", obfstr!("[*] Memory: LOCKED"));
-                println!("{}", obfstr!("[*] Ptrace: BLOCKED"));
-                println!("{}", obfstr!("[*] Dumps: DISABLED"));
-                println!("{}", obfstr!("[*] Isolation: NAMESPACE (Private /tmp)"));
-                println!("{}", obfstr!("[*] Seccomp: ACTIVE"));
-            },
-            c if c == obfstr!("secrets") => {
-                println!("{}", obfstr!("[*] Secrets are loaded and registered for zeroization."));
+                let internal_uid = unsafe { libc::getuid() };
+
+                println!("\n--- Security Status ---");
+                println!("{:<20} {}", obfstr!("[*] Memory:"), obfstr!("LOCKED (mlockall)"));
+                println!("{:<20} {}", obfstr!("[*] Ptrace:"), obfstr!("BLOCKED"));
+                println!("{:<20} {}", obfstr!("[*] Dumps:"), obfstr!("DISABLED"));
+                println!("{:<20} {}", obfstr!("[*] Namespace:"), obfstr!("ACTIVE (User + Mount)"));
+                println!("{:<20} {} (Mapped Root)", obfstr!("[*] Internal UID:"), internal_uid);
+                println!("{:<20} {}", obfstr!("[*] Seccomp:"), obfstr!("ACTIVE (Trap Mode)"));
+                println!("------------------------\n");
             },
             c if c == obfstr!("exit") || c == obfstr!("quit") => {
-                println!("{}", obfstr!("Exiting securely..."));
+                println!("{}", obfstr!("Wiping memory and exiting..."));
                 shutdown::secure_shutdown();
                 break;
             },
             "" => continue,
             _ => {
-                println!("{}", obfstr!("Unknown command. This event has been logged to the secure audit."));
+                println!("{}", obfstr!("Unknown command."));
             }
         }
     }

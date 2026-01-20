@@ -18,8 +18,7 @@ This README combines **conceptual explanation, mathematical formalism, and imple
    * [Kernel-Level Isolation](#kernel-level-isolation)
 3. [Threat Model](#threat-model)
 4. [Architecture](#architecture)
-6. [Acknowledgments](#acknowledgments)
-
+5. [Acknowledgments](#acknowledgments)
 
 ---
 
@@ -46,21 +45,21 @@ Secrets must reside **only in RAM** and die immediately on power loss. This prev
 
 Let:
 
-[
-K = \text{secret data}, \quad R = \text{RAM}, \quad D = \text{Disk/Swap}
-]
+* K = secret data
+* R = RAM
+* D = Disk/Swap
 
 Then:
 
-[
-K \in R \quad \wedge \quad K \notin D
-]
+```
+K ∈ R  ∧  K ∉ D
+```
 
 We enforce a **time-to-live** tied to the RAM power cycle:
 
-[
-TTL(K) = TTL(R) < \infty
-]
+```
+TTL(K) = TTL(R) < ∞
+```
 
 In practice:
 
@@ -78,21 +77,20 @@ We attempt to prevent attackers from observing processes via ptrace.
 
 Let:
 
-[
-P = \text{process}, \quad Obs(P) = \text{set of observers of } P
-]
+* P = process
+* Obs(P) = set of observers of P
 
-We aim for the **lock invariant**:
+Lock invariant:
 
-[
+```
 Obs(P) = { P }
-]
+```
 
-Unfortunately, detaching a self-traced process collapses the invariant:
+Failure invariant:
 
-[
-Obs(P) = \emptyset \implies \exists \text{ Attacker}: \text{Attacker} \to P
-]
+```
+Obs(P) = ∅ ⇒ ∃ Attacker : Attacker → P
+```
 
 > In plain language: You cannot build a perfect fortress in Linux without OS support. KR-SEE recognizes these limits.
 
@@ -104,15 +102,14 @@ Secrets are high-entropy data. On deletion, **entropy must vanish**.
 
 Let:
 
-[
-H(K) = \text{entropy of secret } K, \quad t_{end} = \text{end of lifecycle}
-]
+* H(K) = entropy of secret K
+* t_end = end of lifecycle
 
 Then:
 
-[
-\lim_{t \to t_{end}} H(K_t) = 0
-]
+```
+lim t→t_end H(K_t) = 0
+```
 
 Implementation:
 
@@ -136,21 +133,20 @@ Panic or crashes are **not accidents—they are attack vectors**.
 
 Let:
 
-[
-C = \text{cleanup function}, \quad F = \text{failure event}
-]
+* C = cleanup function
+* F = failure event
 
 If:
 
-[
-panic = "abort" \implies F \Rightarrow \text{Immediate Exit}
-]
+```
+panic = "abort" ⇒ F ⇒ Immediate Exit
+```
 
 Then:
 
-[
-C \notin \delta(F) \quad \Rightarrow \exists F : H(K) > 0 \text{ at termination}
-]
+```
+C ∉ δ(F)  ⇒  ∃ F : H(K) > 0 at termination
+```
 
 > KR-SEE documents these failure semantics transparently. Users must account for panics as potential leaks.
 
@@ -173,17 +169,16 @@ KR-SEE assumes **host environment cannot be trusted**.
 
 Formally:
 
-[
-S = \text{set of all Linux syscalls}, \quad A = \text{allowed syscalls}
-]
+* S = set of all Linux syscalls
+* A = allowed syscalls
 
-[
-A \subset S, \quad |A| \approx 50
-]
+```
+A ⊂ S,  |A| ≈ 50
+```
 
-[
-\forall s \in S : s \notin A \implies \text{Kernel Trap}
-]
+```
+∀ s ∈ S : s ∉ A ⇒ Kernel Trap
+```
 
 This drastically reduces **attack surface**.
 
@@ -222,4 +217,3 @@ All layers are **modular and mathematically reasoned**.
 ## Acknowledgments
 
 * Linux Kernel Docs & Community
-

@@ -1,1 +1,144 @@
-KR-SEE: Kernel-Level Security & Memory EnforcementKR-SEE is a security framework and hardening toolkit designed to treat memory security as a set of non-negotiable mathematical invariants. It moves beyond "best effort" security by enforcing physical constraints on how secrets exist in RAM, how they are observed, and how they expire.1. Memory Persistence (The RAM/Disk Boundary)Modern OS kernels often prioritize availability by moving data to disk (swap) under pressure. For security-critical applications, this creates a persistence vulnerability. KR-SEE enforces a physical isolation boundary to ensure sensitive material never touches non-volatile storage.The Formal InvariantWe define the system state by the location of a secret $K$. To prevent cold-boot and swap-extraction, we must ensure $K$ never leaves physical volatile memory. The intersection of the set of pages in Disk $D$ and the pages containing $K$ must remain a null set:$$K \in R \quad \land \quad K \notin D$$K ∈ R  ∧  K ∉ DThe Time-to-Live (TTL) ConstraintThe lifespan of the secret is strictly bound by the power state of the hardware:$$\mathrm{TTL}(K) = \mathrm{TTL}(R) < \infty$$TTL(K) = TTL(R) < ∞2. Anti-Debugging (The One-Observer Policy)Standard anti-debugging checks are often "point-in-time" (checked only at startup). KR-SEE upgrades this to a continuous invariant where only the process itself is permitted to observe its own state.The Observer InvariantLet $P$ be the process and $\mathrm{Obs}(P)$ be the set of observers. We enforce:$$\mathrm{Obs}(P) = \{P\}$$Obs(P) = {P}If an external entity is detected, the process transitions to a failure state $\delta(F)$:$$\mathrm{Obs}(P) \neq \{P\} \implies \delta(F)$$Obs(P) ≠ {P} ⇒ δ(F)3. Entropy Decay (The Secure Wipe)In standard memory management, "deleting" a pointer is a logical abstraction. KR-SEE mandates a physical collapse of Shannon entropy $H$ to ensure that data cannot be recovered after its lifecycle ends.The Math of ErasureOn deletion, the entropy of the key $K$ must tend toward zero deterministically:$$\lim_{t \to t_{\mathrm{end}}} H(K_t) = 0$$lim t→t_end H(K_t) = 0Implementation Note: We utilize hardware-level memory barriers and volatile write operations to force the CPU to bypass internal caches and commit zeros directly to the memory controller.4. Temporal Integrity Patrol (The Watchdog)To prevent late-attach debugging or memory injection, KR-SEE implements a Temporal Invariant using a background patrol thread $T_{\text{guard}}$.The Trace InvariantThe watchdog thread occupies the ptrace slot of the main thread $T_{\text{main}}$. Since Linux allows only one tracer, this prevents any external process from attaching.$$\forall t \in [t_{\text{start}}, t_{\text{end}}] : \mathrm{Trace}(T_{\text{guard}}, T_{\text{main}}) = \text{True}$$∀ t ∈ [t_start, t_end] : Trace(T_guard, T_main) = TrueIf the slot is hijacked (detected via EPERM), the watchdog triggers an immediate entropy decay:$$\exists t_i : \mathrm{Trace}(T_{\text{guard}}, T_{\text{main}}) = \text{False} \implies \text{Zeroize}(K)$$∃ t_i : Trace(T_guard, T_main) = False ⇒ Zeroize(K)5. Kernel-Level Isolation (Syscall Reduction)KR-SEE reduces the attack surface of the kernel by applying strict Seccomp-BPF filters. We define $S$ as the set of all available syscalls (~450) and $A$ as the minimal allowed whitelist.The Set Invariant$$A \subset S, \quad |A| \approx 50$$A ⊂ S, |A| ≈ 50By narrowing this gate, we break exploit chains that rely on obscure or privileged syscalls that the application does not functionally require.6. Failure Semantics (Secure Panic)In KR-SEE, a crash is a security event. We treat failure handling as a first-class consideration where data destruction takes precedence over error reporting.The Panic LogicIf a process aborts, we ensure that the cleanup routine $C$ is part of the failure trace $\delta(F)$:$$\text{panic} = \text{"abort"} \implies F \implies \text{Zeroize}(K) \to \text{Exit}$$panic = "abort" ⇒ F ⇒ Zeroize(K) → ExitBy setting PR_SET_DUMPABLE to 0, we prevent the kernel from generating a core dump that could leak secrets to the filesystem during a crash.
+# KR-SEE
+
+
+
+KR-SEE should not be read as a traditional program or framework. It is better understood as a **state machine** whose behavior is constrained by a small set of non-negotiable **security invariants**. Every line of code exists only to preserve these invariants. If any invariant is violated, the system intentionally destroys its own state.
+
+At a high level, the system state can be described as a tuple:
+
+```
+Σ = (I, P, E, F)
+```
+
+Where:
+
+* **I** — Isolation (who can observe or influence the process)
+* **P** — Persistence (where secrets are allowed to exist)
+* **E** — Entropy (whether secret data remains recoverable)
+* **F** — Failure state (what happens when assumptions break)
+
+The system is considered *secure* only while all invariants hold simultaneously.
+
+---
+
+## 1. Observer Invariant — Tracer Occupancy
+
+KR-SEE enforces a strict rule: a protected process must be observable only by itself.
+
+On Linux, any process `P` may have at most one tracer:
+
+```
+|Tracers(P)| ≤ 1
+```
+
+KR-SEE exploits this kernel property directly. A supervisor process `S` attaches to the protected process `C` at startup:
+
+```
+ptrace(S, C)
+```
+
+By occupying the sole tracer slot, KR-SEE creates a physical impossibility for a second observer (e.g., GDB, strace) to attach. The watchdog thread exists only to maintain this occupancy over time.
+
+If at any point the tracer relationship is lost, the invariant is violated and the system transitions immediately to failure.
+
+---
+
+## 2. Physical Boundary Invariant — RAM vs Disk
+
+Secrets are not treated as abstract values. Their *location* matters.
+
+Let:
+
+* **R** = volatile physical memory (RAM)
+* **D** = persistent storage (disk, swap)
+* **K** = a secret key
+
+In a standard operating system, memory pages may migrate:
+
+```
+K ∈ R → K ∈ D
+```
+
+KR-SEE forbids this transition. By locking memory pages, it enforces the locality constraint:
+
+```
+K ∈ R ∧ K ∉ D
+```
+
+The existence of a secret is therefore tied directly to silicon voltage. When power is removed, the system state collapses into entropy. No disk image, swap file, or hibernation snapshot can contain recoverable material.
+
+---
+
+## 3. Attack Surface Reduction — Syscall Filtering
+
+Rather than trusting correct behavior, KR-SEE reduces the number of *possible* behaviors.
+
+Let **S** be the set of all Linux system calls, and **A** the allowed subset:
+
+```
+A ⊂ S
+```
+
+In practice:
+
+```
+|A| ≈ 40–50
+```
+
+Any attempt to invoke a syscall outside this set results in an immediate transition to the failure state. The reduction factor is substantial:
+
+```
+Reduction = 1 − |A| / |S|
+```
+
+This sharply limits the space of usable kernel gadgets, even if code execution is achieved.
+
+---
+
+## 4. Entropy Invariant — Destructive Shutdown
+
+Deletion is not considered secure unless information entropy is destroyed.
+
+For a secret `K`, define its entropy over time `H(K_t)`. At shutdown time `t_end`, KR-SEE enforces:
+
+```
+lim(t → t_end) H(K_t) = 0
+```
+
+Secrets are registered explicitly. On any failure or termination signal, each registered destructor is executed, physically overwriting memory via volatile writes and memory barriers.
+
+This is not logical cleanup. It is intentional entropy collapse.
+
+---
+
+## 5. Identity Isolation — Namespace Mapping
+
+KR-SEE separates *perceived authority* from *actual authority*.
+
+Let:
+
+* `uid_in` = user ID inside the isolated environment
+* `uid_out` = corresponding host user ID
+
+A mapping function is defined:
+
+```
+f(uid_in) = uid_out
+```
+
+By mapping an internal root identity to an unprivileged host identity, the system allows internal administration (mounts, tmpfs, setup) while mathematically proving zero authority over host resources.
+
+---
+
+## System Closure
+
+KR-SEE forms a closed system:
+
+* **Inflow:** strictly filtered syscalls
+* **Outflow:** no disk persistence, no memory dumps
+* **Observation:** blocked by tracer exclusivity
+* **Termination:** destructive by design
+
+The protected process exists only as a temporary anomaly in RAM. Once execution ends—normally or otherwise—the system leaves no recoverable trace.
+
+

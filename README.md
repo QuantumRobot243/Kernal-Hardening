@@ -139,6 +139,4 @@ KR-SEE forms a closed system:
 * **Observation:** blocked by tracer exclusivity
 * **Termination:** destructive by design
 
-The protected process exists only as a temporary anomaly in RAM. Once execution ends—normally or otherwise—the system leaves no recoverable trace.
-
 
